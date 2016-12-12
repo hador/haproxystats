@@ -21,6 +21,7 @@ Options:
 import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, ALL_COMPLETED
+import re
 import sys
 import time
 import signal
@@ -42,7 +43,7 @@ LOG_FORMAT = ('%(asctime)s [%(process)d] [%(threadName)-10s:%(funcName)s] '
 logging.basicConfig(format=LOG_FORMAT)
 log = logging.getLogger('root')  # pylint: disable=I0011,C0103
 CMDS = ['show info', 'show stat']
-
+TCP_REGEX = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}$")
 
 @asyncio.coroutine
 def get(socket_file, cmd, storage_dir, loop, executor, config):
@@ -64,8 +65,9 @@ def get(socket_file, cmd, storage_dir, loop, executor, config):
     Returns:
         True if statistics from a UNIX sockets are saved False otherwise.
     """
-    # try to connect to the UNIX socket
-    log.debug('connecting to UNIX socket %s', socket_file)
+    # try to connect to the socket
+    socket_type = 'UNIX'
+    log.debug('connecting to %s socket %s', socket_type, socket_file)
     retries = config.getint('pull', 'retries')
     timeout = config.getfloat('pull', 'timeout')
     interval = config.getfloat('pull', 'interval')
@@ -80,12 +82,13 @@ def get(socket_file, cmd, storage_dir, loop, executor, config):
         attempt = retries + 1  # any other value means retry N times
     while attempt != 0:
         if raised:  # an exception was raised sleep before the next retry
-            log.error('caught "%s" when connecting to UNIX socket %s, '
+            log.error('caught "%s" when connecting to %s socket %s, '
                       'remaining tries %s, sleeping for %.2f seconds',
-                      raised, socket_file, attempt, interval)
+                      raised, socket_type, socket_file, attempt, interval)
             yield from asyncio.sleep(interval)
         try:
-            if ":" in socket_file:
+            if TCP_REGEX.match(socket_file):
+                socket_type = 'TCP'
                 params = socket_file.split(':') # hostname, port
                 connect = asyncio.open_connection(params[0], params[1])
                 reader, writer = yield from asyncio.wait_for(connect, timeout)
@@ -96,20 +99,20 @@ def get(socket_file, cmd, storage_dir, loop, executor, config):
                 OSError) as exc:
             raised = exc
         else:
-            log.debug('connection established to UNIX socket %s', socket_file)
+            log.debug('connection established to %s socket %s', socket_type, socket_file)
             raised = None
             break
 
         attempt -= 1
 
     if raised is not None:
-        log.error('failed to connect to UNIX socket %s after %s retries',
-                  socket_file, retries)
+        log.error('failed to connect to %s socket %s after %s retries',
+                  socket_type, socket_file, retries)
         return False
     else:
-        log.debug('connection established to UNIX socket %s', socket_file)
+        log.debug('connection established to %s socket %s', socket_type, socket_file)
 
-    log.debug('sending command "%s" to UNIX socket %s', cmd, socket_file)
+    log.debug('sending command "%s" to %s socket %s', cmd, socket_type, socket_file)
     writer.write('{c}\n'.format(c=cmd).encode())
     data = yield from reader.read()
     writer.close()
@@ -118,7 +121,7 @@ def get(socket_file, cmd, storage_dir, loop, executor, config):
         log.critical('received zero data')
         return False
 
-    log.debug('received data from UNIX socket %s', socket_file)
+    log.debug('received data from %s socket %s', socket_type, socket_file)
 
     suffix = CMD_SUFFIX_MAP.get(cmd.split()[1])
     filename = os.path.basename(socket_file) + suffix
@@ -174,7 +177,7 @@ def pull_stats(config, storage_dir, loop, executor):
             return False
 
         log.debug('pull statistics')
-        coroutines = [get_tcp(socket, cmd, storage_dir, loop, executor, config)
+        coroutines = [get(socket, cmd, storage_dir, loop, executor, config)
                       for socket in tcp_sockets
                       for cmd in CMDS]
     else:
