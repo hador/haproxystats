@@ -85,8 +85,13 @@ def get(socket_file, cmd, storage_dir, loop, executor, config):
                       raised, socket_file, attempt, interval)
             yield from asyncio.sleep(interval)
         try:
-            connect = asyncio.open_unix_connection(socket_file)
-            reader, writer = yield from asyncio.wait_for(connect, timeout)
+            if ":" in socket_file:
+                params = socket_file.split(':') # hostname, port
+                connect = asyncio.open_connection(params[0], params[1])
+                reader, writer = yield from asyncio.wait_for(connect, timeout)
+            else:
+                connect = asyncio.open_unix_connection(socket_file)
+                reader, writer = yield from asyncio.wait_for(connect, timeout)
         except (ConnectionRefusedError, PermissionError, asyncio.TimeoutError,
                 OSError) as exc:
             raised = exc
@@ -161,21 +166,34 @@ def pull_stats(config, storage_dir, loop, executor):
     """
     # absolute directory path which contains UNIX socket files.
     results = []  # stores the result of finished tasks
-    socket_dir = config.get('pull', 'socket-dir')
+    tcp_sockets = socket_dir = None
+    if config.has_section('tcp_sockets'):
+        tcp_sockets = config.get('tcp_sockets', 'endpoints').split(',')
+        if not tcp_sockets:
+            log.error("incorrect TCP sockets format")
+            return False
+
+        log.debug('pull statistics')
+        coroutines = [get_tcp(socket, cmd, storage_dir, loop, executor, config)
+                      for socket in tcp_sockets
+                      for cmd in CMDS]
+    else:
+        socket_dir = config.get('pull', 'socket-dir')
+        socket_files = [f for f in glob.glob(socket_dir + '/*')
+                        if is_unix_socket(f)]
+        if not socket_files:
+            log.error("found zero UNIX sockets under %s to connect to", socket_dir)
+            return False
+
+        log.debug('pull statistics')
+        coroutines = [get(socket_file, cmd, storage_dir, loop, executor, config)
+                      for socket_file in socket_files
+                      for cmd in CMDS]
+
     pull_timeout = config.getfloat('pull', 'pull-timeout')
     if int(pull_timeout) == 0:
         pull_timeout = None
 
-    socket_files = [f for f in glob.glob(socket_dir + '/*')
-                    if is_unix_socket(f)]
-    if not socket_files:
-        log.error("found zero UNIX sockets under %s to connect to", socket_dir)
-        return False
-
-    log.debug('pull statistics')
-    coroutines = [get(socket_file, cmd, storage_dir, loop, executor, config)
-                  for socket_file in socket_files
-                  for cmd in CMDS]
     # Launch all connections.
     done, pending = yield from asyncio.wait(coroutines,
                                             timeout=pull_timeout,
