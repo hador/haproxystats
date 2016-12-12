@@ -170,8 +170,8 @@ def pull_stats(config, storage_dir, loop, executor):
     # absolute directory path which contains UNIX socket files.
     results = []  # stores the result of finished tasks
     tcp_sockets = socket_dir = None
-    if config.has_section('tcp_sockets'):
-        tcp_sockets = config.get('tcp_sockets', 'endpoints').split(',')
+    if config.has_option('pull', 'tcp_sockets'):
+        tcp_sockets = config.get('pull', 'tcp_sockets').split(',')
         if not tcp_sockets:
             log.error("incorrect TCP sockets format")
             return False
