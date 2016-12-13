@@ -689,8 +689,16 @@ def main():
     except ValueError as exc:
         sys.exit(str(exc))
 
-    tasks = multiprocessing.Queue()
-    handler = EventHandler(tasks=tasks)
+    # get all configured host/sockets pairs
+    tcp_socket_list = []
+    if config.has_section('tcp-sockets'):
+        tcp_socket_list = [s for s in config.items('tcp-sockets') if s[0] not in config.defaults()]
+
+    # instantiate a queue for each host, fall back to a single queue
+    # in case we're not using tcp sockets
+    tasks_set = [multiprocessing.Queue() for i in range(max(len(tcp_socket_list), 1))]
+
+    handler  = EventHandler(tasks_set=tasks_set)
     notifier = pyinotify.Notifier(watcher, handler)
     num_consumers = config.getint('process', 'workers')
     incoming_dir = config.get('process', 'src-dir')
@@ -699,12 +707,13 @@ def main():
         config.get('process', 'loglevel').upper()  # pylint: disable=no-member
     log.setLevel(getattr(logging, loglevel, None))
 
-    log.info('haproxystats-processs %s version started', VERSION)
+    log.info('haproxystats-process %s version started', VERSION)
     # process incoming data which were retrieved while processing was stopped
     for pathname in glob.iglob(incoming_dir + '/*'):
         if os.path.isdir(pathname):
             log.info('putting %s in queue', pathname)
-            tasks.put(pathname)
+            for tasks in tasks_set:
+                tasks.put(pathname)
 
     def shutdown(signalnb=None, frame=None):
         """
@@ -721,7 +730,8 @@ def main():
         notifier.stop()
         for _ in range(num_consumers):
             log.info('sending stop signal to worker')
-            tasks.put(STOP_SIGNAL)
+            for tasks in tasks_set:
+                tasks.put(STOP_SIGNAL)
         log.info('waiting for workers to finish their work')
         for consumer in consumers:
             consumer.join()
@@ -744,17 +754,19 @@ def main():
         else:
             break
 
-    log.info('creating %d consumers for each host', num_consumers)
-    if config.has_section('tcp-sockets'):
-        tcp_socket_list = [s for s in config.items('tcp-sockets') if s[0] not in config.defaults()]
+    log.info('creating %d consumers for %d hosts', num_consumers, len(tcp_socket_list))
+    consumers = []
+    tasks_iter = tasks_set.__iter__()
+    # assign each queue to a different set of consumers, one per host
+    if tcp_socket_list:
         for host, socket_list in tcp_socket_list:
-            consumers = [Consumer(tasks, config, hostname=host, host_id=socket_list.split(':')[0]) for i in range(num_consumers)]
-            for consumer in consumers:
-                consumer.start()
+            tasks = next(tasks_iter)
+            consumers.extend([Consumer(tasks, config, hostname=host, host_id=socket_list.split(':')[0]) for i in range(num_consumers)])
     else:
-        consumers = [Consumer(tasks, config) for i in range(num_consumers)]
-        for consumer in consumers:
-            consumer.start()
+        consumers = [Consumer(next(tasks_iter), config) for i in range(num_consumers)]
+
+    for consumer in consumers:
+        consumer.start()
 
     log.info('watching %s directory for incoming data', incoming_dir)
     notifier.loop(daemonize=False)

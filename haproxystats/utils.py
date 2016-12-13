@@ -485,16 +485,20 @@ class EventHandler(pyinotify.ProcessEvent):
     If the event isn't for a directory no action is taken.
 
     Arguments:
-        tasks (queue obj): A queue to put items.
+        tasks_set (list of queue objects): A list of queues to put items.
     """
-    def my_init(self, tasks):  # pylint: disable=arguments-differ
-        self.tasks = tasks
+    tasks_set = []
+
+    def my_init(self, tasks_set):  # pylint: disable=arguments-differ
+        for tasks in tasks_set:
+            self.tasks_set.append(tasks)
 
     def _put_item_to_queue(self, pathname):
         """Add item to queue if and only if the pathname is a directory"""
         if os.path.isdir(pathname):
             log.info('putting %s in queue', pathname)
-            self.tasks.put(pathname)
+            for tasks in self.tasks_set:
+                tasks.put(pathname)
         else:
             log.info("ignore %s as it isn't directory", pathname)
 
