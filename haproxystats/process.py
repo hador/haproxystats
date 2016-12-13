@@ -158,8 +158,8 @@ class Consumer(multiprocessing.Process):
                 # Remove directory as data have been successfully processed.
                 log.debug('removing %s', incoming_dir)
                 try:
-                    for dirname in glob.glob(incoming_dir + '/{h}*'.format(h=self.host_id)):
-                        shutil.rmtree(dirname)
+                    for filename in glob.glob(incoming_dir + '/{h}*'.format(h=self.host_id)):
+                        os.remove(filename)
 
                     if not os.listdir(incoming_dir):
                         shutil.rmtree(incoming_dir)
