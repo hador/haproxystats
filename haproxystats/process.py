@@ -157,7 +157,7 @@ class Consumer(multiprocessing.Process):
                 # Remove directory as data have been successfully processed.
                 log.debug('removing %s', incoming_dir)
                 try:
-                    for dirname in glob.glob(incoming_dir + '/{h}*'.format(h=host_id)):
+                    for dirname in glob.glob(incoming_dir + '/{h}*'.format(h=self.host_id)):
                         shutil.rmtree(dirname)
 
                     if not os.listdir(incoming_dir):
@@ -743,9 +743,10 @@ def main():
         else:
             break
 
-    log.info('creating %d consumers', num_consumers)
+    log.info('creating %d consumers for each host', num_consumers)
     if config.has_section('tcp_sockets'):
-        for host, socket_list in config.items('tcp_sockets'):
+        tcp_socket_list = [s for s in config.items('tcp_sockets') if s[0] not in config.defaults()]
+        for host, socket_list in tcp_socket_list:
             consumers = [Consumer(tasks, config, hostname=host, host_id=socket_list.split(':')[0]) for i in range(num_consumers)]
             for consumer in consumers:
                 consumer.start()
