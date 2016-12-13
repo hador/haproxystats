@@ -63,18 +63,22 @@ class Consumer(multiprocessing.Process):
     """
     Process statistics and dispatch them to handlers.
     """
-    def __init__(self, tasks, config):
+    def __init__(self, tasks, config, hostname=None, host_id=""):
         multiprocessing.Process.__init__(self)
         self.tasks = tasks  # A queue to consume items
         self.config = config  # Holds configuration
         self.local_store = None
         self.file_handler = None
         self.timestamp = None  # The time that statistics were retrieved
+        self.hostname = hostname
+        self.host_id = host_id
 
         # Build graphite path (<namespace>.<hostname>.haproxy)
         graphite_tree = []
         graphite_tree.append(self.config.get('graphite', 'namespace'))
-        if self.config.getboolean('graphite', 'prefix-hostname'):
+        if self.hostname:
+            graphite_tree.append(self.hostname)
+        elif self.config.getboolean('graphite', 'prefix-hostname'):
             if self.config.getboolean('graphite', 'fqdn'):
                 graphite_tree.append(socket.gethostname().replace('.', '_'))
             else:
@@ -153,7 +157,11 @@ class Consumer(multiprocessing.Process):
                 # Remove directory as data have been successfully processed.
                 log.debug('removing %s', incoming_dir)
                 try:
-                    shutil.rmtree(incoming_dir)
+                    for dirname in glob.glob(incoming_dir + '/{h}*'.format(h=host_id)):
+                        shutil.rmtree(dirname)
+
+                    if not os.listdir(incoming_dir):
+                        shutil.rmtree(incoming_dir)
                 except (FileNotFoundError, PermissionError, OSError) as exc:
                     log.critical('failed to remove directory %s with:%s. '
                                  'This should not have happened as it means '
@@ -185,13 +193,13 @@ class Consumer(multiprocessing.Process):
         # statistics for HAProxy daemon and for frontend/backend/server have
         # different format and haproxystats-pull save them using a different
         # file suffix, so we can distinguish them easier.
-        files = get_files(pathname, FILE_SUFFIX_INFO)
+        files = get_files(pathname, FILE_SUFFIX_INFO, host_id=self.host_id)
         if not files:
             log.warning("%s directory doesn't contain any files with HAProxy "
                         "daemon statistics", pathname)
         else:
             self.haproxy_stats(files)
-        files = get_files(pathname, FILE_SUFFIX_STAT)
+        files = get_files(pathname, FILE_SUFFIX_STAT, host_id=self.host_id)
 
         if not files:
             log.warning("%s directory doesn't contain any files with site "
@@ -736,9 +744,15 @@ def main():
             break
 
     log.info('creating %d consumers', num_consumers)
-    consumers = [Consumer(tasks, config) for i in range(num_consumers)]
-    for consumer in consumers:
-        consumer.start()
+    if config.has_section('tcp_sockets'):
+        for host, socket_list in config.items('tcp_sockets'):
+            consumers = [Consumer(tasks, config, hostname=host, host_id=socket_list.split(':')[0]) for i in range(num_consumers)]
+            for consumer in consumers:
+                consumer.start()
+    else:
+        consumers = [Consumer(tasks, config) for i in range(num_consumers)]
+        for consumer in consumers:
+            consumer.start()
 
     log.info('watching %s directory for incoming data', incoming_dir)
     notifier.loop(daemonize=False)

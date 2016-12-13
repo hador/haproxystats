@@ -169,17 +169,19 @@ def pull_stats(config, storage_dir, loop, executor):
     """
     # absolute directory path which contains UNIX socket files.
     results = []  # stores the result of finished tasks
-    tcp_sockets = socket_dir = None
+    tcp_sockets = coroutines = []
+    socket_dir = None
     if config.has_section('tcp_sockets'):
-        tcp_sockets = config.get('tcp_sockets', 'endpoints').split(',')
+        for host, socket_list in config.items('tcp_sockets'):
+            tcp_sockets = socket_list.split(',')
+            log.debug('pull statistics for host %s', host)
+            coroutines.extend([get(socket, cmd, os.path.join(storage_dir, host), loop, executor, config)
+                    for socket in tcp_sockets
+                    for cmd in CMDS])
         if not tcp_sockets:
             log.error("incorrect TCP sockets format")
             return False
 
-        log.debug('pull statistics')
-        coroutines = [get(socket, cmd, storage_dir, loop, executor, config)
-                      for socket in tcp_sockets
-                      for cmd in CMDS]
     else:
         socket_dir = config.get('pull', 'socket-dir')
         socket_files = [f for f in glob.glob(socket_dir + '/*')

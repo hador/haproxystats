@@ -147,7 +147,7 @@ def concat_csv(csv_files):
         return None
 
 
-def get_files(path, suffix):
+def get_files(path, suffix, host_id=""):
     """
     Return the filenames from a directory which match a suffix
 
@@ -159,7 +159,7 @@ def get_files(path, suffix):
         A list of filenames
     """
     files = [filename
-             for filename in glob.glob(path + '/*{s}'.format(s=suffix))]
+             for filename in glob.glob(path + '/{h}*{s}'.format(h=host_id, s=suffix))]
 
     return files
 
