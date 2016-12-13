@@ -78,7 +78,7 @@ class Consumer(multiprocessing.Process):
         if self.config.getboolean('graphite', 'prefix-namespace'):
             graphite_tree.append(self.config.get('graphite', 'namespace'))
         if self.hostname:
-            graphite_tree.append(self.hostname)
+            graphite_tree.append(self.hostname.replace(".", "_"))
         elif self.config.getboolean('graphite', 'prefix-hostname'):
             if self.config.getboolean('graphite', 'fqdn'):
                 graphite_tree.append(socket.gethostname().replace('.', '_'))
