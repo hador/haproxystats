@@ -75,7 +75,8 @@ class Consumer(multiprocessing.Process):
 
         # Build graphite path (<namespace>.<hostname>.haproxy)
         graphite_tree = []
-        graphite_tree.append(self.config.get('graphite', 'namespace'))
+        if self.config.getboolean('graphite', 'prefix-namespace'):
+            graphite_tree.append(self.config.get('graphite', 'namespace'))
         if self.hostname:
             graphite_tree.append(self.hostname)
         elif self.config.getboolean('graphite', 'prefix-hostname'):
@@ -744,8 +745,8 @@ def main():
             break
 
     log.info('creating %d consumers for each host', num_consumers)
-    if config.has_section('tcp_sockets'):
-        tcp_socket_list = [s for s in config.items('tcp_sockets') if s[0] not in config.defaults()]
+    if config.has_section('tcp-sockets'):
+        tcp_socket_list = [s for s in config.items('tcp-sockets') if s[0] not in config.defaults()]
         for host, socket_list in tcp_socket_list:
             consumers = [Consumer(tasks, config, hostname=host, host_id=socket_list.split(':')[0]) for i in range(num_consumers)]
             for consumer in consumers:

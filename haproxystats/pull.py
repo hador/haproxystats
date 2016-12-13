@@ -171,8 +171,8 @@ def pull_stats(config, storage_dir, loop, executor):
     results = []  # stores the result of finished tasks
     tcp_sockets = coroutines = []
     socket_dir = None
-    if config.has_section('tcp_sockets'):
-        tcp_socket_list = [s for s in config.items('tcp_sockets') if s[0] not in config.defaults()]
+    if config.has_section('tcp-sockets'):
+        tcp_socket_list = [s for s in config.items('tcp-sockets') if s[0] not in config.defaults()]
         for host, socket_list in tcp_socket_list:
             tcp_sockets = socket_list.split(',')
             log.debug('pull statistics for host %s', host)
