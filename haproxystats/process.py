@@ -23,7 +23,6 @@ import glob
 import copy
 import sys
 import time
-import shutil
 import socket
 import fileinput
 from collections import defaultdict
@@ -158,11 +157,16 @@ class Consumer(multiprocessing.Process):
                 # Remove directory as data have been successfully processed.
                 log.debug('removing %s', incoming_dir)
                 try:
+                    # Remove files referring to our host;
+                    # if host_id is not defined, remove all the files
                     for filename in glob.glob(incoming_dir + '/{h}*'.format(h=self.host_id)):
                         os.remove(filename)
 
+                    # the directory is empty, meaning all files
+                    # for the current timestamp have already been processed;
+                    # we can safely remove it
                     if not os.listdir(incoming_dir):
-                        shutil.rmtree(incoming_dir)
+                        os.rmdir(incoming_dir)
                 except (FileNotFoundError, PermissionError, OSError) as exc:
                     log.critical('failed to remove directory %s with:%s. '
                                  'This should not have happened as it means '
@@ -696,7 +700,8 @@ def main():
 
     # instantiate a queue for each host, fall back to a single queue
     # in case we're not using tcp sockets
-    tasks_set = [multiprocessing.Queue() for i in range(max(len(tcp_socket_list), 1))]
+    num_hosts = max(len(tcp_socket_list), 1)
+    tasks_set = [multiprocessing.Queue() for i in range(num_hosts)]
 
     handler  = EventHandler(tasks_set=tasks_set)
     notifier = pyinotify.Notifier(watcher, handler)
@@ -754,7 +759,7 @@ def main():
         else:
             break
 
-    log.info('creating %d consumers for %d hosts', num_consumers, len(tcp_socket_list))
+    log.info('creating %d consumers for %d hosts', num_consumers, num_hosts)
     consumers = []
     tasks_iter = tasks_set.__iter__()
     # assign each queue to a different set of consumers, one per host
